@@ -14,6 +14,7 @@
     call/5,
     destroy/1,
     get_type/1,
+    import/2,
     new_context/1,
     new_context/2,
     retrieve/2,
@@ -75,6 +76,10 @@ destroy(#pyrlang_ctx{remote_pid = Pid}) ->
 %% @doc Accessor to the type field
 get_type(#pyrlang_value_ref{remote_type = T}) -> T.
 
+%% @doc Make an import of a module and return reference of it back.
+import(#pyrlang_ctx{remote_pid = Pid, ref = CtxRef}, Path) ->
+    {ok, Type, VRef} = gen_server:call(Pid, {nb_import, Path}),
+    #pyrlang_value_ref{id = VRef, remote_type = Type, ref = CtxRef}.
 
 %% @doc Perform a remote call with default timeout of 5s and no keyword args
 call(Ctx, Path, Args) -> call(Ctx, Path, Args, #{}).

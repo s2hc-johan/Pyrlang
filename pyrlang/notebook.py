@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import collections
+import builtins
 from typing import Callable, List, Tuple, Dict
+from importlib import import_module
 
 from pyrlang.gen.server import GenServer
 from pyrlang.gen.decorators import call as main_call
@@ -69,6 +72,21 @@ class Notebook(GenServer):
             limit to save memory. Attempt to refer to a trimmed value will 
             create value_not_found exception, also propagated to Erlang side. 
         """
+
+    @call('nb_import')
+    def nb_import(self, msg):
+        """ Remote import call from ``py.erl``
+
+            Imports the module specified in the path. The msg is a tuple
+
+                (Atom('nb_import'), path)
+
+
+        """
+        path = self._make_path_gen(msg[1])
+        mod = import_module(".".join(path))
+        index = self._store_result(mod)
+        return Atom('ok'), mod.__class__.__name__, index
 
     @call('nb_call')
     def nb_call(self, msg):
@@ -166,11 +184,39 @@ class Notebook(GenServer):
 
         return Atom('error'), Atom('not_found')
 
+    def _make_path_gen(self, path):
+        """ make an iterable of the path
+
+            The iterator is a good input for a loop of ``getattr``. It splits
+            the path up to separate str. This should all evalutat to the same
+            generator::
+
+                [Atom('some'), ["really", "super.really], b"deep.structure"]
+                "some.really.super.really.deep.structure"
+        """
+        if isinstance(path, str):
+            for p in path.split('.'):
+                yield p
+        elif isinstance(path, (bytes, bytearray)):
+            for p in self._make_path_gen(path.decode('utf-8')):
+                yield p
+        elif (isinstance(path, tuple) and
+              len(path) !=0 and
+              path[0] == Atom("$pyrlangval")):
+            val = self._retrieve_value(path)
+            for p in self._make_path_gen(val):
+                yield p
+        elif isinstance(path, collections.Iterable):
+            for i in path:
+                for p in self._make_path_gen(i):
+                    yield i
+
     def _resolve_path(self, p: List[str]) -> Callable:
         """ Imports p[0] and then follows the list p, by applying getattr()
             repeatedly. """
-        if isinstance(p, str):
-            p = [p]
+
+        if len(p) == 0:
+            raise AttributeError("path can't be of zero length")
 
         # First element would be the import, or a stored value reference
         first_path_element = p[0]
@@ -178,12 +224,14 @@ class Notebook(GenServer):
                 and first_path_element[0] == Atom("$pyrlangval"):
             # First element is {'$pyrlangval', X} - query the value
             val = self._retrieve_value(first_path_element)
+            path = p[1:]
         else:
-            # First element is a string, import it
-            val = __import__(as_str(first_path_element))
+            # First element wasn't a reference, looking in builtins
+            val = builtins
+            path = p
 
         # Follow the elements in path, and getattr deeper
-        for item in p[1:]:
+        for item in self._make_path_gen(path):
             val = getattr(val, as_str(item))
 
         return val
@@ -237,4 +285,3 @@ def new_context(options: dict) -> Pid:
     """
     nb = Notebook(options=options)
     return nb.pid_
-
