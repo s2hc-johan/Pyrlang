@@ -62,6 +62,9 @@ class Node:
             :param hidden: bool - set to True if you want node to be hidden
                 (i.e. not visible in remote ``nodes().``)
         """
+
+        self.encode_hook = None
+        self.decode_hook = None
         self.node_name_ = node_name  # type: str
         """ Node name as seen on the network. Use full node names here:
             ``name@hostname`` """

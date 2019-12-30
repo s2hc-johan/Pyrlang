@@ -18,13 +18,13 @@
     new_context/1,
     new_context/2,
     retrieve/2,
+    batch_import/2,
     batch_call/3,
     batch_call/4,
     batch_new/0,
     batch_run/2,
     batch_run/3
 ]).
-
 
 %% Creates a remote notebook object which will handle the calls on this context
 -record(pyrlang_ctx, {
@@ -170,6 +170,12 @@ retrieve(#pyrlang_ctx{}, #pyrlang_value_ref{}) ->
 batch_new() ->
     #pyrlang_batch{}.
 
+%% @doc Create import command in the batch
+batch_import(#pyrlang_batch{batch = Cmds} = Batch, Path) ->
+    Ret = erlang:make_ref(),
+    ImportCall = #{import_call => true, path => Path, ret => Ret},
+    Batch1 = Batch#pyrlang_batch{batch = Cmds ++[ImportCall]},
+    {Batch1, {'$pyrlangval', Ret}}.
 
 %% @doc Builds a data structure for execution of multiple commands remotely on
 %% Python side. For each added call returned value can be reused similar to

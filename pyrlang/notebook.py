@@ -26,6 +26,47 @@ from term.pid import Pid
 LOG = logging.getLogger("pyrlang.notebook")
 
 
+class DecodeHook(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__hook_active = False
+        self['Atom'] = self.__atom_hook
+
+    def __atom_hook(self, val):
+        print("got atom {}, {}".format(type(val), val))
+        if val == "$pyrlangHookWrapper":
+            self.__delitem__('Atom')
+            self["tuple"] = self.__tuple_hook
+            self.__hook_active = True
+        return val
+
+    def __tuple_hook(self, val):
+        print("got tuple {}, {}".format(type(val), val))
+        if not self.__hook_active or val[0] != "$pyrlangHookWrapper":
+            return val
+        print("deactivating wrapper")
+        self.__delitem__("tuple")
+        print("deleted tuple")
+        self["Atom"] = self.__atom_hook
+        print("returning")
+        return val[1]
+
+    def is_hook_active(self):
+        return self.__hook_active
+
+    def get(self, k):
+        print("get called, {}".format(k))
+        return super().get(k)
+
+    def __getitem__(self, k):
+        print("custom hook intercept {}".format(k))
+        return super().__getitem__(k)
+
+    def __contains__(self, item):
+        print("contains, called")
+        return super().__contains__(item)
+
+
 def call(name, msg_len=2):
     """ specific decorator function
 
@@ -126,9 +167,15 @@ class Notebook(GenServer):
         call_imm = param[Atom("immediate")]
         for bitem in batch:
             call_path = bitem[Atom("path")]
+            call_ret = bitem[Atom("ret")]
+            if "import_call" in bitem:
+                path = self._make_path_gen(call_path)
+                mod = import_module(".".join(path))
+                last_result_name = self._store_result_as(mod, call_ret)
+                continue
+
             call_args = self._resolve_valuerefs_in_args(bitem[Atom("args")])
             call_kwargs = self._resolve_valuerefs_in_kwargs(bitem[Atom("kwargs")])
-            call_ret = bitem[Atom("ret")]
 
             fn = self._resolve_path(call_path)
             result = fn(*call_args, **call_kwargs)

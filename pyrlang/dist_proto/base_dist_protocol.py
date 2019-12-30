@@ -95,6 +95,8 @@ class BaseDistProtocol(asyncio.Protocol):
         self.node_name_ = node_name
         """ Name of the running Erlang node. """
 
+        self.node = self.node_db.get(node_name)
+
         self.packet_len_size_ = 2
         """ Packet size header is variable, 2 bytes before handshake is finished
             and 4 bytes afterwards. """
@@ -181,7 +183,7 @@ class BaseDistProtocol(asyncio.Protocol):
         """ Use this to get access to the Pyrlang node which owns this protocol.
             :rtype: pyrlang2.node.Node
         """
-        return self.node_db.get(self.node_name_)
+        return self.node
 
     def connection_lost(self, _exc):
         """ Handler is called when the client has disconnected """
@@ -189,7 +191,7 @@ class BaseDistProtocol(asyncio.Protocol):
 
         if self.peer_name_ is not None:
             #self._inform_local_node(("node_disconnected", self.peer_name_))
-            n = self.node_db.get(self.node_name_)
+            n = self.node
             n.unregister_dist_node(self.addr_)
 
     def _inform_local_node(self, msg):
@@ -366,7 +368,7 @@ class BaseDistProtocol(asyncio.Protocol):
             packet = b'p' + codec.term_to_binary(ctrl)
         else:
             packet = b'p' + codec.term_to_binary(ctrl) + codec.term_to_binary(
-                msg)
+                msg, encode_hook=self.node.encode_hook)
 
         self._send_packet4(packet)
 
@@ -397,32 +399,33 @@ class BaseDistProtocol(asyncio.Protocol):
 
         msg_type = chr(data[0])
 
-        if msg_type == "p":
-            (control_term, tail) = codec.binary_to_term(data[1:])
-
-            if tail != b'':
-                try:
-                    (msg_term, tail) = codec.binary_to_term(tail)
-                except codec.PyCodecError:
-                    # it's ok probably just another package waiting
-                    msg_term = None
-            else:
-                msg_term = None
-
-            asyncio.get_event_loop().create_task(
-                self.on_passthrough_message(control_term, msg_term)
-            )
-            return tail
-
-        else:
+        if msg_type != "p":
             self.protocol_error("Unexpected dist message type: %s" % msg_type)
-            # raise
+            return
+
+        decode_hook = self.node.decode_hook
+        (control_term, tail) = codec.binary_to_term(data[1:],
+                                                    decode_hook=decode_hook)
+        if tail != b'':
+            try:
+                (msg_term, tail) = codec.binary_to_term(tail,
+                                                        decode_hook=decode_hook)
+            except codec.PyCodecError:
+                # it's ok probably just another package waiting
+                msg_term = None
+        else:
+            msg_term = None
+
+        asyncio.get_event_loop().create_task(
+            self.on_passthrough_message(control_term, msg_term)
+        )
+        return tail
 
     def report_dist_connected(self):
         assert (self.peer_name_ is not None)
         LOG.info("Connected to %s", self.peer_name_)
         # self._inform_local_node(('node_connected', self.peer_name_, self))
-        n = self.node_db.get(self.node_name_)
+        n = self.node
         n.register_dist_node(self.peer_name_, self)
         n.get_loop().create_task(self.listen_on_inbox())
 

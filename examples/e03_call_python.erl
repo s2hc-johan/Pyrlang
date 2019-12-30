@@ -14,11 +14,12 @@ start() ->
     %% Import datetime and call datetime.now(), kwargs are empty by default.
     %% Note that binaries, ASCII strings and atoms all work.
     %% First element in the list is module name to be imported
-    DT1 = py:call(Ctx, [<<"datetime">>, "datetime", now], []),
+    Mod = py:import(Ctx, <<"datetime">>),
+    DT1 = py:call(Ctx, [Mod, "datetime", now], []),
     timer:sleep(2000),
 
-    %% Import datetime and call datetime.now() again but now with kwargs #{}
-    DT2  = py:call(Ctx, [datetime, datetime, <<"now">>], [], #{}),
+    %% Import call datetime.now() again but now with kwargs #{}
+    DT2  = py:call(Ctx, [Mod, datetime, <<"now">>], [], #{}),
 
     %% Subtract two datetimes
     Diff = py:call(Ctx, [DT2, '__sub__'], [DT1], #{}),
